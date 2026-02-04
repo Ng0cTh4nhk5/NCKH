@@ -243,53 +243,28 @@ flowchart TD
 ### 4.1. Biến đổi dữ liệu
 
 #### Log Transform (cho biến lệch phải)
-```python
-features_to_log = ['revenue', 'total_assets', 'registered_capital']
-X[feature + '_log'] = np.log1p(X[feature])
-```
+Áp dụng log transformation cho các biến có phân phối lệch phải như doanh thu, tổng tài sản, vốn điều lệ.
 
 #### Tỷ lệ & Tương tác
-```python
-# Tương tác giữa các biến
-X['debt_coverage'] = X['dscr'] * X['current_ratio']
-X['profitability_index'] = X['profit_margin'] * X['revenue_growth']
-```
+Tạo các biến tương tác giữa các chỉ số tài chính để nắm bắt mối quan hệ phi tuyến.
 
 ### 4.2. Chuẩn hóa (Normalization)
 
 #### Min-Max Scaling (cho features có phân phối đồng đều)
-```python
-from sklearn.preprocessing import MinMaxScaler
-
-scaler = MinMaxScaler()
-X_scaled = scaler.fit_transform(X)
-```
+Scale các features về khoảng [0, 1].
 
 #### Standardization (cho features có phân phối chuẩn)
 ```python
 z = (x - μ) / σ
 ```
 
-```python
-from sklearn.preprocessing import StandardScaler
-
-scaler = StandardScaler()
-X_standardized = scaler.fit_transform(X)
-```
+Chuẩn hóa features theo phân phối chuẩn với mean = 0, std = 1.
 
 ### 4.3. Xử lý Missing Values
 
-```python
-# Median imputation cho numeric features
-from sklearn.impute import SimpleImputer
-
-imputer_median = SimpleImputer(strategy='median')
-X_numeric_imputed = imputer_median.fit_transform(X_numeric)
-
-# Mode imputation cho categorical
-imputer_mode = SimpleImputer(strategy='most_frequent')
-X_categorical_imputed = imputer_mode.fit_transform(X_categorical)
-```
+- Median imputation cho numeric features
+- Mode imputation cho categorical features
+- Xem xét KNN imputation cho missing values có cấu trúc
 
 ---
 
@@ -298,120 +273,48 @@ X_categorical_imputed = imputer_mode.fit_transform(X_categorical)
 ### 5.1. Base Models
 
 #### XGBoost
-```python
-from xgboost import XGBClassifier
-
-xgb_model = XGBClassifier(
-    n_estimators=500,
-    max_depth=6,
-    learning_rate=0.05,
-    subsample=0.8,
-    colsample_bytree=0.8,
-    objective='binary:logistic',
-    eval_metric='auc',
-    scale_pos_weight=10  # Xử lý imbalanced data
-)
-```
+Gradient boosting framework với khả năng xử lý imbalanced data tốt.
+- Hyperparameters: n_estimators, max_depth, learning_rate, subsample
+- Objective: binary:logistic
+- Evaluation metric: AUC
 
 #### Random Forest
-```python
-from sklearn.ensemble import RandomForestClassifier
-
-rf_model = RandomForestClassifier(
-    n_estimators=500,
-    max_depth=12,
-    min_samples_split=20,
-    min_samples_leaf=10,
-    max_features='sqrt',
-    class_weight='balanced'
-)
-```
+Ensemble của decision trees với khả năng chống overfitting.
+- Hyperparameters: n_estimators, max_depth, min_samples_split
+- Class weight: balanced để xử lý imbalanced data
 
 #### LightGBM
-```python
-from lightgbm import LGBMClassifier
-
-lgbm_model = LGBMClassifier(
-    n_estimators=500,
-    max_depth=8,
-    learning_rate=0.05,
-    num_leaves=31,
-    subsample=0.8,
-    colsample_bytree=0.8
-)
-```
+Gradient boosting framework tối ưu cho tốc độ và hiệu suất.
+- Hyperparameters: n_estimators, max_depth, learning_rate, num_leaves
+- Ưu điểm: Nhanh, hiệu quả với dữ liệu lớn
 
 ### 5.2. Ensemble Strategy
 
 #### Weighted Average Ensemble
-```python
-# Tính PD cuối cùng
-ŷ = w1 * P_xgb + w2 * P_rf + w3 * P_lgbm
-
-# Với weights được tối ưu hóa qua validation
-w = [0.4, 0.35, 0.25]  # Tổng = 1
-```
+Kết hợp predictions từ nhiều models với weights được tối ưu hóa.
+- Tính PD cuối cùng: ŷ = w1 * P_xgb + w2 * P_rf + w3 * P_lgbm
+- Weights được học qua validation set
 
 #### Stacking Ensemble
-```python
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import StackingClassifier
+Sử dụng meta-model (Logistic Regression) để học cách kết hợp predictions.
 
-meta_model = LogisticRegression()
-
-ensemble = StackingClassifier(
-    estimators=[
-        ('xgb', xgb_model),
-        ('rf', rf_model),
-        ('lgbm', lgbm_model)
-    ],
-    final_estimator=meta_model,
-    cv=5
-)
-```
 
 ### 5.3. Hàm dự đoán cuối cùng
 
-```python
-def predict_default_probability(X_financial, X_alternative, X_demographic):
-    """
-    Tính xác suất vỡ nợ (PD)
-    
-    Returns:
-        ŷ: Probability of Default [0, 1]
-        risk_grade: 'Low', 'Medium', 'High'
-        credit_limit: Hạn mức đề xuất
-    """
-    # 1. Concatenate features
-    X = np.concatenate([X_financial, X_alternative, X_demographic], axis=1)
-    
-    # 2. Feature engineering
-    X_engineered = feature_engineering(X)
-    
-    # 3. Normalize
-    X_normalized = scaler.transform(X_engineered)
-    
-    # 4. Predict with ensemble
-    ŷ = ensemble.predict_proba(X_normalized)[:, 1]
-    
-    # 5. Risk grading
-    if ŷ < 0.05:
-        risk_grade = 'Low'
-        credit_limit = calculate_limit_low_risk(X)
-    elif ŷ < 0.15:
-        risk_grade = 'Medium'
-        credit_limit = calculate_limit_medium_risk(X)
-    else:
-        risk_grade = 'High'
-        credit_limit = 0
-    
-    return {
-        'pd_score': ŷ,
-        'risk_grade': risk_grade,
-        'credit_limit': credit_limit,
-        'recommendation': get_recommendation(ŷ, risk_grade)
-    }
-```
+**Input**: X_financial, X_alternative, X_demographic
+
+**Output**: 
+- `pd_score`: Probability of Default [0, 1]
+- `risk_grade`: 'Low', 'Medium', 'High'
+- `credit_limit`: Hạn mức đề xuất
+- `recommendation`: Quyết định (Auto-Approve/Manual Review/Auto-Reject)
+
+**Pipeline**:
+1. Concatenate features từ 3 nguồn
+2. Feature engineering & transformation
+3. Normalization
+4. Predict với ensemble model
+5. Risk grading dựa trên PD threshold
 
 ---
 
@@ -550,125 +453,33 @@ locust -f tests/load/locustfile.py --host=http://localhost:8000
 - Dữ liệu kinh tế vĩ mô HCM (GDP, thu nhập bình quân theo quận)
 
 #### 1.2. Tạo Synthetic Data (nếu thiếu dữ liệu thực)
-```python
-# Tạo dữ liệu giả lập dựa trên phân phối thực tế
-import pandas as pd
-import numpy as np
-
-n_samples = 10000
-
-synthetic_data = pd.DataFrame({
-    'revenue': np.random.lognormal(mean=18, sigma=1.5, size=n_samples),  # TB: 200tr/tháng
-    'district_code': np.random.choice(range(1, 25), size=n_samples),
-    'industry_code': np.random.choice(['46', '47', '10', '56'], size=n_samples),  # Thương mại, F&B, Sản xuất
-    # ... thêm các features khác
-    'default_label': np.random.binomial(1, 0.05, size=n_samples)  # 5% default rate
-})
-```
+Sử dụng phân phối thống kê (lognormal, binomial) để tạo dữ liệu giả lập phù hợp với đặc điểm SME tại HCM.
 
 ### Bước 2: Xây dựng Feature Engineering Pipeline
 
-```python
-# feature_engineering.py
-class SMEFeatureEngineer:
-    def __init__(self):
-        self.district_risk_map = {...}  # Map từ bảng trên
-        
-    def engineer_features(self, df):
-        # Financial ratios
-        df['roa'] = df['net_profit'] / df['total_assets']
-        df['current_ratio'] = df['current_assets'] / df['current_liabilities']
-        
-        # Geography-based
-        df['district_risk'] = df['district_code'].map(self.district_risk_map)
-        df['is_cbd'] = df['district_code'].isin([1, 3, 4, 5, 10, 11])
-        
-        # Normalization
-        from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-        
-        return df
-```
+Xây dựng class SMEFeatureEngineer để:
+- Tính toán các chỉ số tài chính (ROA, Current Ratio, etc.)
+- Ánh xạ điểm rủi ro theo quận/huyện
+- Tạo các biến binary (is_cbd, has_collateral)
+- Chuẩn hóa dữ liệu
 
 ### Bước 3: Training Model
 
-```python
-# train_model.py
-from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
-
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y)
-
-# Train XGBoost
-model = XGBClassifier(
-    n_estimators=500,
-    max_depth=6,
-    learning_rate=0.05,
-    scale_pos_weight=len(y_train[y_train==0]) / len(y_train[y_train==1])  # Handle imbalance
-)
-
-model.fit(X_train, y_train, 
-          eval_set=[(X_test, y_test)],
-          early_stopping_rounds=50,
-          verbose=True)
-
-# Evaluate
-y_pred_proba = model.predict_proba(X_test)[:, 1]
-auc = roc_auc_score(y_test, y_pred_proba)
-print(f"AUC-ROC: {auc:.4f}")
-```
+**Quy trình**:
+1. Split data (train/test) với stratification để giữ tỷ lệ default
+2. Train base models (XGBoost, Random Forest, LightGBM) với hyperparameter tuning
+3. Sử dụng early stopping để tránh overfitting
+4. Evaluate trên test set với các metrics: AUC-ROC, Precision, Recall, F1-Score
 
 ### Bước 4: Deployment (Simple API)
 
-```python
-# api.py
-from fastapi import FastAPI
-from pydantic import BaseModel
-import pickle
-
-app = FastAPI()
-
-# Load model
-model = pickle.load(open('model.pkl', 'rb'))
-feature_engineer = pickle.load(open('feature_engineer.pkl', 'rb'))
-
-class CreditRequest(BaseModel):
-    revenue: float
-    total_assets: float
-    district_code: int
-    # ... other features
-
-@app.post("/predict")
-async def predict_credit_score(request: CreditRequest):
-    # Convert to DataFrame
-    df = pd.DataFrame([request.dict()])
-    
-    # Engineer features
-    X = feature_engineer.engineer_features(df)
-    
-    # Predict
-    pd_score = model.predict_proba(X)[0, 1]
-    
-    # Risk grading
-    if pd_score < 0.05:
-        risk_grade = "Low"
-        decision = "Auto-Approve"
-    elif pd_score < 0.15:
-        risk_grade = "Medium"
-        decision = "Manual Review"
-    else:
-        risk_grade = "High"
-        decision = "Auto-Reject"
-    
-    return {
-        "pd_score": float(pd_score),
-        "risk_grade": risk_grade,
-        "decision": decision
-    }
-```
+**REST API sử dụng FastAPI**:
+- Load trained model và feature engineer
+- Nhận request với thông tin khách hàng
+- Feature engineering tự động
+- Predict PD score
+- Risk grading và auto-decision
+- Trả về kết quả JSON với pd_score, risk_grade, decision
 
 ---
 
@@ -713,14 +524,10 @@ async def predict_credit_score(request: CreditRequest):
 - Vietnam Central Bank regulations on SME lending
 
 ### Tools & Libraries
-```bash
-# Python environment
-pip install pandas numpy scikit-learn
-pip install xgboost lightgbm
-pip install fastapi uvicorn
-pip install mlflow  # For experiment tracking
-pip install shap  # For model interpretability
-```
+**Core**: pandas, numpy, scikit-learn
+**ML**: xgboost, lightgbm, random forest
+**API**: fastapi, uvicorn
+**MLOps**: mlflow (experiment tracking), shap (interpretability)
 
 ---
 
